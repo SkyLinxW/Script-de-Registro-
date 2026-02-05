@@ -13,7 +13,7 @@ function onOpen() {
 }
 
 function procurarNasPlanilhas() {
-  var ROOT_FOLDER_ID = "1DDc6zzrss9d0X0V9RX0mIPljxFuFYZLC"; 
+  var ROOT_FOLDER_ID = ""; 
   var termo = Browser.inputBox("Digite o termo que deseja buscar:");
   if (!termo) return;
 
