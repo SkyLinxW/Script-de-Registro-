@@ -46,7 +46,7 @@ function preencherSegundaVia() {
 
 function registrarManutencao(nextRow) {
   var drive = DriveApp;
-  var folderId = '1DDc6zzrss9d0X0V9RX0mIPljxFuFYZLC';
+  var folderId = '';
   var sharedFolder = drive.getFolderById(folderId);
 
   var currentYear = new Date().getFullYear();
