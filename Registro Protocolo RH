@@ -37,7 +37,7 @@ function registrarProtocolo() {
 
 function registrarNaPlanilhaMensal(filialEmitente, filialDestinatario, discriminacao, assinatura, data) {
   var drive = DriveApp;
-  var folderId = '1Gv13S3m6rzz9Iq7STHCKfHi6OPx5n0sZ'; // ID da pasta raiz
+  var folderId = ''; // ID da pasta raiz
   var sharedFolder = drive.getFolderById(folderId);
 
   var currentYear = new Date().getFullYear();
