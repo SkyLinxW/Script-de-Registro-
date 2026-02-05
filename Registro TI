@@ -1,0 +1,134 @@
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu("Segunda Via")
+    .addItem("Transferir para a Segunda Via", "preencherSegundaVia")
+    .addToUi();
+}
+
+function preencherSegundaVia() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  var transferenciaSheet = sheet.getSheetByName("Transferência");
+  var segundaViaSheet = sheet.getSheetByName("Segunda Via");
+
+  if (!transferenciaSheet || !segundaViaSheet) {
+    SpreadsheetApp.getUi().alert("Erro: As abas necessárias não foram encontradas.");
+    return;
+  }
+
+  var data = segundaViaSheet.getRange("A4:A").getValues();
+  var nextRow = 4;
+  for (var i = 0; i < data.length; i++) {
+    if (data[i][0] === "") {
+      nextRow = i + 4;
+      break;
+    }
+  }
+
+  var filial = transferenciaSheet.getRange("D2").getValue();
+  var equipamento = transferenciaSheet.getRange("C4:F4").getValues();
+  var patrimonio = transferenciaSheet.getRange("C3:F3").getValues();
+  var chamados = transferenciaSheet.getRange("C6:F6").getValues();
+  var tecnico = transferenciaSheet.getRange("C5:F5").getValues();
+  var oQueFoiFeito = transferenciaSheet.getRange("D8:F12").getValues();
+
+  segundaViaSheet.getRange("A" + nextRow).setValue(filial);
+  segundaViaSheet.getRange("B" + nextRow + ":E" + nextRow).setValues(equipamento);
+  segundaViaSheet.getRange("D" + nextRow + ":G" + nextRow).setValues(patrimonio);
+  segundaViaSheet.getRange("E" + nextRow + ":H" + nextRow).setValues(chamados);
+  segundaViaSheet.getRange("F" + nextRow + ":I" + nextRow).setValues(tecnico);
+  segundaViaSheet.getRange("G" + nextRow + ":I" + (nextRow + 4)).setValues(oQueFoiFeito);
+  segundaViaSheet.getRange("C" + nextRow).setValue(1);
+
+  SpreadsheetApp.getActiveSpreadsheet().toast("Transferência concluída!", "Sucesso", 3);
+
+  registrarManutencao(nextRow);
+}
+
+function registrarManutencao(nextRow) {
+  var drive = DriveApp;
+  var folderId = '1DDc6zzrss9d0X0V9RX0mIPljxFuFYZLC';
+  var sharedFolder = drive.getFolderById(folderId);
+
+  var currentYear = new Date().getFullYear();
+  var currentMonth = getMesEmPortugues();
+  var currentDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
+
+  Logger.log("Ano atual: " + currentYear);
+  Logger.log("Mês atual: " + currentMonth);
+
+  var yearFolder = verificarOuCriarPasta(sharedFolder, currentYear.toString());
+  Logger.log("Pasta do ano verificada/criada: " + yearFolder.getName());
+
+  var fileName = "Manutenção - " + currentMonth + " " + currentYear;
+  var file = verificarOuCriarPlanilhaSeparada(yearFolder, fileName);
+  Logger.log("Arquivo verificado/criado: " + fileName);
+
+  var ss = SpreadsheetApp.openById(file.getId());
+  var sheet = ss.getSheets()[0];
+
+  if (sheet.getLastRow() === 0 || sheet.getRange("A1").getValue() === "") {
+    Logger.log("Planilha está vazia. Inserindo cabeçalho.");
+    sheet.appendRow(["Filial", "Equipamento", "UN", "Patrimônio/CCI", "Chamado", "Técnico", "Procedimento aplicado", "Data"]);
+    aplicarFormatacao(sheet);
+  }
+
+  var segundaVia = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Segunda Via");
+  if (!segundaVia) {
+    Logger.log("Erro: Aba 'Segunda Via' não encontrada.");
+    return;
+  }
+
+  var dados = segundaVia.getRange("A" + nextRow + ":G" + nextRow).getValues();
+  if (!dados || dados.length === 0 || dados[0].every(cell => cell === "")) {
+    Logger.log("Erro: Nenhum dado encontrado na linha " + nextRow);
+    return;
+  }
+
+  dados[0].push(currentDate);
+  sheet.appendRow(dados[0]);
+  Logger.log("Dados registrados com sucesso na planilha mensal.");
+
+  var lastRow = sheet.getLastRow();
+  var dataRange = sheet.getRange(lastRow, 1, 1, sheet.getLastColumn());
+  dataRange.setBorder(true, true, true, true, true, true).setHorizontalAlignment("center");
+}
+
+function aplicarFormatacao(sheet) {
+  var headerRange = sheet.getRange("A1:H1");
+  headerRange.setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setBackground("#BFBFBF");
+  headerRange.setBorder(true, true, true, true, true, true);
+  sheet.setColumnWidths(1, 8, 150);
+  sheet.setColumnWidth(7, 550);
+  sheet.setColumnWidth(8, 120);
+}
+
+function verificarOuCriarPasta(parent, name) {
+  var folders = parent.getFoldersByName(name);
+  if (folders.hasNext()) {
+    Logger.log("Pasta já existe: " + name);
+    return folders.next();
+  } else {
+    Logger.log("Criando pasta: " + name);
+    return parent.createFolder(name);
+  }
+}
+
+function verificarOuCriarPlanilhaSeparada(folder, name) {
+  var files = folder.getFilesByName(name);
+  if (files.hasNext()) {
+    Logger.log("Arquivo já existe: " + name);
+    return files.next();
+  } else {
+    Logger.log("Criando nova planilha: " + name);
+    var ss = SpreadsheetApp.create(name);
+    var file = DriveApp.getFileById(ss.getId());
+    folder.addFile(file);
+    DriveApp.getRootFolder().removeFile(file);
+    return file;
+  }
+}
+
+function getMesEmPortugues() {
+  var meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  return meses[new Date().getMonth()];
+}
