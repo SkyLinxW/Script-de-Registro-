@@ -1,102 +1,228 @@
 function onOpen() {
   var ui = SpreadsheetApp.getUi();
   ui.createMenu("Protocolo")
-    .addItem("Registrar Protocolo", "registrarProtocolo")
+    .addItem("Registrar Protocolos Preenchidos", "registrarMultiplosProtocolos")
     .addToUi();
 }
 
-function registrarProtocolo() {
-  var sheet = SpreadsheetApp.getActiveSheet();
-
-  // Coletar dados da aba ativa
-  var filialEmitente = sheet.getRange("E2").getValue();
-  var filialDestinatario = sheet.getRange("E3").getValue();
-  var discriminacao = sheet.getRange("A5").getValue();
-  var assinatura = sheet.getRange("E6").getValue();
-  var data = sheet.getRange("E7").getValue();
-
-  // Validar se os dados essenciais foram preenchidos
-  if (!filialEmitente || !filialDestinatario || !assinatura) {
-    SpreadsheetApp.getUi().alert("Erro: Preencha todos os campos obrigatórios (Filial Emitente, Filial Destinatário e Assinatura).");
+/**
+ * Função principal que itera sobre os blocos de protocolo na aba ativa,
+ * registra os dados se estiverem preenchidos e limpa os campos.
+ */
+function registrarMultiplosProtocolos() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet();
+  
+  // Confirma se a aba ativa é a aba de entrada (assumindo que é a aba "Protocolo")
+  if (sheet.getName() !== "Protocolo") {
+    SpreadsheetApp.getUi().alert("Erro: Por favor, ative a aba 'Protocolo' antes de executar o registro.");
     return;
   }
 
-  // Formatar data se necessário
+  // Detectar dinamicamente todas as linhas de início dos blocos (Coluna A)
+  var startRows = [];
+  var lastRow = sheet.getLastRow();
+  var dataRange = sheet.getRange("A1:A" + lastRow).getValues();
+  var tituloBloco = "Eletromar Móveis e Eletrodomésticos Ltda";
+
+  for (var i = 0; i < dataRange.length; i++) {
+    if (dataRange[i][0] === tituloBloco) {
+      // Adiciona a linha (i + 1, pois os arrays são base 0 e as linhas são base 1)
+      startRows.push(i + 1);
+    }
+  }
+  
+  var protocolosRegistrados = 0;
+  var ui = SpreadsheetApp.getUi();
+
+  if (startRows.length === 0) {
+    ss.toast("Nenhum bloco de protocolo encontrado. Verifique se o título '" + tituloBloco + "' está na coluna A.", "Erro", 5);
+    return;
+  }
+
+  for (var i = 0; i < startRows.length; i++) {
+    var startRow = startRows[i];
+    
+    // 1. Coletar e validar dados do bloco
+    var dados = coletarDadosDoBloco(sheet, startRow);
+
+    if (dados) {
+      // 2. Registrar na planilha mensal
+      try {
+        // A função registrarNaPlanilhaMensal agora lida com o bloqueio de concorrência e notificação
+        registrarNaPlanilhaMensal(dados.filialEmitente, dados.filialDestinatario, dados.discriminacao, dados.assinatura, dados.data);
+        
+        // 3. Limpar o bloco após o registro bem-sucedido (mantendo Filial Emitente, Assinatura e Data)
+        limparBloco(sheet, startRow);
+        protocolosRegistrados++;
+        
+      } catch (e) {
+        Logger.log("Erro ao registrar protocolo do bloco na linha " + startRow + ": " + e.toString());
+        ui.alert("Erro ao registrar protocolo do bloco na linha " + startRow + ". Verifique o log de execução. Erro: " + e.toString());
+        // Continua para o próximo bloco mesmo com erro
+      }
+    }
+  }
+
+  if (protocolosRegistrados > 0) {
+    ss.toast(protocolosRegistrados + " protocolo(s) registrado(s) com sucesso e limpo(s)!", "Sucesso", 5);
+  } else {
+    ss.toast("Nenhum protocolo preenchido encontrado para registro.", "Aviso", 5);
+  }
+}
+
+/**
+ * Coleta e valida os dados de um bloco de protocolo.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet A aba ativa.
+ * @param {number} startRow A linha de início do bloco (onde está o título "Eletromar...").
+ * @returns {Object | null} Um objeto com os dados formatados ou null se a validação falhar.
+ */
+function coletarDadosDoBloco(sheet, startRow) {
+  // Células de entrada para um bloco que começa em startRow (Bloco da Esquerda - Colunas A:E)
+  var filialEmitenteCell = "E" + (startRow + 1);
+  var filialDestinatarioCell = "E" + (startRow + 2);
+  var discriminacaoCell = "A" + (startRow + 4);
+  var assinaturaCell = "E" + (startRow + 5);
+  var dataCell = "E" + (startRow + 6);
+
+  var filialEmitente = sheet.getRange(filialEmitenteCell).getValue();
+  var filialDestinatario = sheet.getRange(filialDestinatarioCell).getValue();
+  var discriminacao = sheet.getRange(discriminacaoCell).getValue();
+  var assinatura = sheet.getRange(assinaturaCell).getValue();
+  var data = sheet.getRange(dataCell).getValue();
+
+  // Validar se TODOS os 5 campos essenciais foram preenchidos
+  if (!filialEmitente || !filialDestinatario || !discriminacao || !assinatura || !data) {
+    // Se qualquer um dos 5 campos estiver vazio, retorna null para ignorar este bloco
+    return null;
+  }
+
+  // Formatar data
   var dataFormatada;
   if (data instanceof Date) {
     dataFormatada = Utilities.formatDate(data, Session.getScriptTimeZone(), "dd/MM/yyyy");
   } else {
+    // Se a data não foi preenchida corretamente, usa a data atual
     dataFormatada = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy");
   }
-
-  // Registrar na planilha mensal organizada por ano
-  registrarNaPlanilhaMensal(filialEmitente, filialDestinatario, discriminacao, assinatura, dataFormatada);
-
-  SpreadsheetApp.getActiveSpreadsheet().toast("Protocolo registrado com sucesso!", "Sucesso", 3);
+  
+  return {
+    filialEmitente: filialEmitente,
+    filialDestinatario: filialDestinatario,
+    discriminacao: discriminacao,
+    assinatura: assinatura,
+    data: dataFormatada
+  };
 }
 
+/**
+ * Limpa os campos de entrada de um bloco de protocolo.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet A aba ativa.
+ * @param {number} startRow A linha de início do bloco.
+ */
+function limparBloco(sheet, startRow) {
+  // Células a serem limpas (apenas Filial Destinatário e Discriminação)
+  var rangesToClear = [
+    // "E" + (startRow + 1), // Filial Emitente - MANTER
+    "E" + (startRow + 2), // Filial Destinatário - LIMPAR
+    "A" + (startRow + 4)  // Discriminação - LIMPAR
+    // "E" + (startRow + 5), // Assinatura - MANTER
+    // "E" + (startRow + 6)  // Data - MANTER
+  ];
+  
+  // Limpa o conteúdo das células de entrada especificadas
+  sheet.getRangeList(rangesToClear).clearContent();
+}
+
+// --- Funções Auxiliares Originais (Mantidas) ---
+
 function registrarNaPlanilhaMensal(filialEmitente, filialDestinatario, discriminacao, assinatura, data) {
-  var drive = DriveApp;
-  var folderId = ''; // ID da pasta raiz
-  var sharedFolder = drive.getFolderById(folderId);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var lock = LockService.getScriptLock();
+  var lockAcquired = lock.tryLock(0); // Tenta adquirir o bloqueio imediatamente (timeout 0)
 
-  var currentYear = new Date().getFullYear();
-  var currentMonth = getMesEmPortugues();
-
-  Logger.log("Ano atual: " + currentYear);
-  Logger.log("Mês atual: " + currentMonth);
-
-  // Verificar ou criar pasta do ano
-  var yearFolder = verificarOuCriarPasta(sharedFolder, currentYear.toString());
-  Logger.log("Pasta do ano verificada/criada: " + yearFolder.getName());
-
-  // Verificar ou criar planilha do mês
-  var fileName = "Registro - " + currentMonth;
-  var file = verificarOuCriarPlanilhaSeparada(yearFolder, fileName);
-  Logger.log("Arquivo verificado/criado: " + fileName);
-
-  // Abrir a planilha
-  var ss = SpreadsheetApp.openById(file.getId());
-  var sheetDestino = ss.getSheets()[0];
-
-  // Se a planilha estiver vazia, criar título e cabeçalho
-  if (sheetDestino.getLastRow() === 0 || sheetDestino.getRange("A1").getValue() === "") {
-    Logger.log("Planilha está vazia. Inserindo título e cabeçalho.");
+  if (!lockAcquired) {
+    // Se não conseguiu imediatamente, notifica o usuário que ele está na fila
+    ss.toast("Outro usuário está registrando. Aguardando minha vez...", "Aviso", 30);
     
-    // Mesclar e adicionar título na linha 1
-    sheetDestino.getRange("A1:E1").merge();
-    sheetDestino.getRange("A1").setValue("Eletromar Móveis e Eletrodomésticos Ltda");
-    
-    // Adicionar cabeçalho na linha 2
-    sheetDestino.getRange("A2").setValue("Filial Emitente");
-    sheetDestino.getRange("B2").setValue("Filial Destinatário");
-    sheetDestino.getRange("C2").setValue("Discriminação");
-    sheetDestino.getRange("D2").setValue("Assinatura");
-    sheetDestino.getRange("E2").setValue("Data");
-    aplicarFormatacaoCabecalho(sheetDestino);
+    // Agora, espera ativamente pelo bloqueio (AUMENTADO PARA 50 SEGUNDOS)
+    lockAcquired = lock.waitLock(50000);
+  }
+  
+  if (!lockAcquired) {
+    // Se o bloqueio falhou mesmo após 50 segundos, lança um erro
+    throw new Error("Tempo limite excedido. O registro demorou mais de 50 segundos para ser concluído por outro usuário. Tente novamente.");
   }
 
-  // Encontrar a próxima linha vazia a partir da linha 3
-  var dataRange = sheetDestino.getRange("A3:A").getValues();
-  var nextRow = 3;
-  for (var i = 0; i < dataRange.length; i++) {
-    if (dataRange[i][0] === "") {
-      nextRow = i + 3;
-      break;
+  // O bloqueio foi adquirido (ou imediatamente, ou após a espera)
+  try {
+    var drive = DriveApp;
+    // ATENÇÃO: Mantenha o ID da sua pasta original
+    var folderId = ''; 
+    var sharedFolder = drive.getFolderById(folderId);
+
+    var currentYear = new Date().getFullYear();
+    var currentMonth = getMesEmPortugues();
+
+    Logger.log("Ano atual: " + currentYear);
+    Logger.log("Mês atual: " + currentMonth);
+
+    // Verificar ou criar pasta do ano
+    var yearFolder = verificarOuCriarPasta(sharedFolder, currentYear.toString());
+    Logger.log("Pasta do ano verificada/criada: " + yearFolder.getName());
+
+    // Verificar ou criar planilha do mês
+    var fileName = "Registro - " + currentMonth;
+    var file = verificarOuCriarPlanilhaSeparada(yearFolder, fileName);
+    Logger.log("Arquivo verificado/criado: " + fileName);
+
+    // Abrir a planilha
+    var ssDestino = SpreadsheetApp.openById(file.getId());
+    var sheetDestino = ssDestino.getSheets()[0];
+
+    // Se a planilha estiver vazia, criar título e cabeçalho
+    if (sheetDestino.getLastRow() === 0 || sheetDestino.getRange("A1").getValue() === "") {
+      Logger.log("Planilha está vazia. Inserindo título e cabeçalho.");
+      
+      // Mesclar e adicionar título na linha 1
+      sheetDestino.getRange("A1:E1").merge();
+      sheetDestino.getRange("A1").setValue("Eletromar Móveis e Eletrodomésticos Ltda");
+      
+      // Adicionar cabeçalho na linha 2
+      sheetDestino.getRange("A2").setValue("Filial Emitente");
+      sheetDestino.getRange("B2").setValue("Filial Destinatário");
+      sheetDestino.getRange("C2").setValue("Discriminação");
+      sheetDestino.getRange("D2").setValue("Assinatura");
+      sheetDestino.getRange("E2").setValue("Data");
+      aplicarFormatacaoCabecalho(sheetDestino);
     }
+
+    // Encontrar a próxima linha vazia a partir da linha 3
+    var dataRange = sheetDestino.getRange("A3:A").getValues();
+    var nextRow = 3;
+    for (var i = 0; i < dataRange.length; i++) {
+      if (dataRange[i][0] === "") {
+        nextRow = i + 3;
+        break;
+      }
+    }
+
+    // Inserir os dados na próxima linha disponível
+    sheetDestino.getRange("A" + nextRow).setValue(filialEmitente);
+    sheetDestino.getRange("B" + nextRow).setValue(filialDestinatario);
+    sheetDestino.getRange("C" + nextRow).setValue(discriminacao);
+    sheetDestino.getRange("D" + nextRow).setValue(assinatura);
+    sheetDestino.getRange("E" + nextRow).setValue(data);
+
+    // Aplicar formatação na linha de dados
+    aplicarFormatacaoLinha(sheetDestino, nextRow);
+
+    Logger.log("Dados registrados com sucesso na planilha mensal.");
+
+  } finally {
+    // 3. Liberar o bloqueio
+    lock.releaseLock();
   }
-
-  // Inserir os dados na próxima linha disponível
-  sheetDestino.getRange("A" + nextRow).setValue(filialEmitente);
-  sheetDestino.getRange("B" + nextRow).setValue(filialDestinatario);
-  sheetDestino.getRange("C" + nextRow).setValue(discriminacao);
-  sheetDestino.getRange("D" + nextRow).setValue(assinatura);
-  sheetDestino.getRange("E" + nextRow).setValue(data);
-
-  // Aplicar formatação na linha de dados
-  aplicarFormatacaoLinha(sheetDestino, nextRow);
-
-  Logger.log("Dados registrados com sucesso na planilha mensal.");
 }
 
 function aplicarFormatacaoCabecalho(sheet) {
