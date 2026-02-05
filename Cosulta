@@ -1,0 +1,65 @@
+function onOpen() {
+  var ui = SpreadsheetApp.getUi();
+  
+  // Menu Consulta
+  ui.createMenu('Consulta')
+    .addItem('Buscar Informações', 'procurarNasPlanilhas')
+    .addToUi();
+  
+  // Menu Segunda Via
+  ui.createMenu('Segunda Via')
+    .addItem('Transferir para a Segunda Via', 'preencherSegundaVia')
+    .addToUi();
+}
+
+function procurarNasPlanilhas() {
+  var ROOT_FOLDER_ID = "1DDc6zzrss9d0X0V9RX0mIPljxFuFYZLC"; 
+  var termo = Browser.inputBox("Digite o termo que deseja buscar:");
+  if (!termo) return;
+
+  var consultaSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Consulta");
+  if (!consultaSheet) {
+    Browser.msgBox("Planilha 'Consulta' não encontrada!");
+    return;
+  }
+
+  // Limpa resultados anteriores a partir da linha 3
+  consultaSheet.getRange(3, 1, consultaSheet.getMaxRows() - 2, consultaSheet.getMaxColumns()).clearContent();
+
+  var resultados = [];
+  try {
+    var rootFolder = DriveApp.getFolderById(ROOT_FOLDER_ID);
+    var yearFolders = rootFolder.getFolders();
+
+    while (yearFolders.hasNext()) {
+      var yearFolder = yearFolders.next();
+      var files = yearFolder.getFilesByType(MimeType.GOOGLE_SHEETS);
+
+      while (files.hasNext()) {
+        var file = files.next();
+        var sheet = SpreadsheetApp.openById(file.getId()).getSheets()[0];
+        var data = sheet.getDataRange().getValues();
+
+        for (var i = 0; i < data.length; i++) {
+          var linha = data[i];
+          if (linha.some(c => c !== "" && c !== null && c !== undefined)) {
+            if (linha.some(c => String(c).toLowerCase().includes(termo.toLowerCase()))) {
+              resultados.push(linha.slice(0, 8)); // pega só as 8 primeiras colunas
+            }
+          }
+        }
+      }
+    }
+
+    if (resultados.length > 0) {
+      consultaSheet.getRange(3, 1, resultados.length, 8).setValues(resultados);
+      Browser.msgBox(resultados.length + " resultado(s) encontrados.");
+    } else {
+      Browser.msgBox("Nenhum resultado encontrado.");
+    }
+
+  } catch (e) {
+    Logger.log(e);
+    Browser.msgBox("Erro ao acessar pastas/planilhas:\n" + e.toString());
+  }
+}
